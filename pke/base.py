@@ -58,7 +58,7 @@ class LoadFile(object):
             stoplist (list): custom list of stopwords, defaults to
                 pke.lang.stopwords[language].
             normalization (str): word normalization method, defaults to
-                'stemming'. Other possible value is 'none'
+                'stemming'. Other possible value is 'none', "lemmatization"
                 for using word surface forms instead of stems/lemmas.
             spacy_model (spacy.lang): preloaded spacy model when input is a
                 string.
@@ -102,26 +102,6 @@ class LoadFile(object):
 
         # populate the sentences
         self.sentences = sents
-
-        # TODO: this code could go into Reader.normalize ? Hum, not sure
-        if self.normalization == 'stemming':
-            # fall back to porter if english language (or unavailable languages) is used
-            try:
-                langcode = langcodes.get(self.language)
-                if langcode == "english":
-                    langcode = 'porter'
-                stemmer = SnowballStemmer(langcode)
-            except ValueError:
-                logging.error('No stemmer available for \'{}\' language -> fall back to porter.'.format(self.language))
-                stemmer = SnowballStemmer("porter")
-
-            # populate Sentence.stems
-            for i, sentence in enumerate(self.sentences):
-                self.sentences[i].stems = [stemmer.stem(w).lower() for w in sentence.words]
-
-        else:
-            for i, sentence in enumerate(self.sentences):
-                self.sentences[i].stems = [w.lower() for w in sentence.words]
 
     def is_redundant(self, candidate, prev, minimum_length=1):
         """Test if one candidate is redundant with respect to a list of already
@@ -202,25 +182,31 @@ class LoadFile(object):
         # return the list of best candidates
         return n_best
 
-    def add_candidate(self, words, stems, pos, offset, sentence_id):
+    def add_candidate(self, words, stems, lemmas, pos, offset, sentence_id):
         """Add a keyphrase candidate to the candidates container.
 
         Args:
             words (list): the words (surface form) of the candidate.
             stems (list): the stemmed words of the candidate.
+            lemmas (list): the lemmatized words of the candidate.
             pos (list): the Part-Of-Speeches of the words in the candidate.
             offset (int): the offset of the first word of the candidate.
             sentence_id (int): the sentence id of the candidate.
         """
 
         # build the lexical (canonical) form of the candidate using stems
-        lexical_form = ' '.join(stems)
+        if self.normalization == "lemmatization":
+            lexical_form = ' '.join(lemmas)
+        elif self.normalization == "stemming":
+            lexical_form = ' '.join(stems)
+        else:
+            lexical_form = ' '.join(words)
 
         # add/update the surface forms
         self.candidates[lexical_form].surface_forms.append(words)
 
         # add/update the lexical_form
-        self.candidates[lexical_form].lexical_form = stems
+        self.candidates[lexical_form].lexical_form = lexical_form
 
         # add/update the POS patterns
         self.candidates[lexical_form].pos_patterns.append(pos)
@@ -303,6 +289,7 @@ class LoadFile(object):
                     # add the ngram to the candidate container
                     self.add_candidate(words=sentence.words[seq[0]:seq[-1] + 1],
                                        stems=sentence.stems[seq[0]:seq[-1] + 1],
+                                       lemmas=sentence.lemmas[seq[0]:seq[-1] + 1],
                                        pos=sentence.pos[seq[0]:seq[-1] + 1],
                                        offset=shift + seq[0],
                                        sentence_id=i)
