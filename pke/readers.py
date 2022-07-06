@@ -7,11 +7,16 @@ import logging
 import spacy
 
 from pke.data_structures import Sentence
+from pke.lang import langcodes
+
 
 # https://spacy.io/usage/linguistic-features#native-tokenizer-additions
 from spacy.lang.char_classes import ALPHA, ALPHA_LOWER, ALPHA_UPPER
 from spacy.lang.char_classes import CONCAT_QUOTES, LIST_ELLIPSES, LIST_ICONS
 from spacy.util import compile_infix_regex
+
+from nltk.stem.snowball import SnowballStemmer
+
 
 # Modify tokenizer infix patterns
 infixes = (
@@ -94,16 +99,28 @@ class RawTextReader(Reader):
         # https://spacy.io/usage/linguistic-features#native-tokenizer-additions
         nlp.tokenizer.infix_finditer = infix_re.finditer
 
+
+
+        # Creating the stemmer
+        try:
+            langcode = langcodes.get(self.language)
+            stemmer = SnowballStemmer(langcode)
+        except ValueError:
+            logging.error('No stemmer available for \'{}\' language -> fall back to porter.'.format(self.language))
+            stemmer = SnowballStemmer("porter")
+
         # process the document
         spacy_doc = nlp(text)
 
         sentences = []
+
         for sentence_id, sentence in enumerate(spacy_doc.sents):
             sentences.append(Sentence(
                 words=[token.text for token in sentence],
                 pos=[token.pos_ or token.tag_ for token in sentence],
+                stems = [stemmer.stem(token.text).lower() for token in sentence],
+                lemmas=[token.lemma_.lower() for token in sentence],
                 meta={
-                    "lemmas": [token.lemma_ for token in sentence],
                     "char_offsets": [(token.idx, token.idx + len(token.text))
                                      for token in sentence]
                 }
@@ -115,13 +132,23 @@ class SpacyDocReader(Reader):
     """Minimal Spacy Doc Reader."""
 
     def read(self, spacy_doc):
+
+        # Creating the stemmer
+        try:
+            langcode = langcodes.get(self.language)
+            stemmer = SnowballStemmer(langcode)
+        except ValueError:
+            logging.error('No stemmer available for \'{}\' language -> fall back to porter.'.format(self.language))
+            stemmer = SnowballStemmer("porter")
+
         sentences = []
         for sentence_id, sentence in enumerate(spacy_doc.sents):
             sentences.append(Sentence(
                 words=[token.text for token in sentence],
                 pos=[token.pos_ or token.tag_ for token in sentence],
+                stems = [stemmer.stem(token.text).lower() for token in sentence],
+                lemmas=[token.lemma_.lower() for token in sentence],
                 meta={
-                    "lemmas": [token.lemma_ for token in sentence],
                     "char_offsets": [(token.idx, token.idx + len(token.text))
                                      for token in sentence]
                 }
@@ -131,16 +158,60 @@ class SpacyDocReader(Reader):
 
 class PreprocessedReader(Reader):
     """Reader for preprocessed text."""
+    def __init__(self, language=None):
+        """Constructor for PreprocessedReader.
 
-    def read(self, list_of_sentence_tuples):
+        Args:
+            language (str): language of text to process.
+        """
+
+        self.language = language
+
+        if language is None:
+            self.language = 'en'
+
+    def read(self, list_of_sentence_tuples, spacy_model = None):
+
+        # Loading spacy_model
+        nlp = spacy_model
+
+        if nlp is None:
+
+            # list installed models
+            installed_models = [m for m in spacy.util.get_installed_models() if m[:2] == self.language]
+
+            # select first model for the language
+            if len(installed_models):
+                nlp = spacy.load(installed_models[0])
+
+            # stop execution is no model is available
+            else:
+                logging.error('No spacy model for \'{}\' language.'.format(self.language))
+                logging.error('A list of available spacy models is available at https://spacy.io/models.')
+                return
+
+        # Creating the stemmer
+        try:
+            langcode = langcodes.get(self.language)
+            stemmer = SnowballStemmer(langcode)
+        except ValueError:
+            logging.error('No stemmer available for \'{}\' language -> fall back to porter.'.format(self.language))
+            stemmer = SnowballStemmer("porter")
+
         sentences = []
         for sentence_id, sentence in enumerate(list_of_sentence_tuples):
             words = [word for word, pos_tag in sentence]
             pos_tags = [pos_tag for word, pos_tag in sentence]
-            shift = 0
+            full_sentence = nlp(' '.join(words))
+
             sentences.append(Sentence(
                 words=words,
-                pos=pos_tags
+                pos=pos_tags,
+                stems = [stemmer.stem(word).lower() for word in words],
+                lemmas=[token.lemma_.lower() for token in full_sentence],
+                meta={
+                    "char_offsets": [(token.idx, token.idx + len(token.text))
+                                     for token in full_sentence]
+                }
             ))
-            shift += len(' '.join(words))
         return sentences
