@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class Sentence:
     """The sentence data structure."""
 
-    def __init__(self, words, pos=[], meta={}):
+    def __init__(self, words, pos=[], stems = [], lemmas = [] ,meta={}):
 
         self.words = words
         """list of words (tokens) in the sentence."""
@@ -17,11 +17,14 @@ class Sentence:
         self.pos = pos
         """list of Part-Of-Speeches."""
 
-        self.stems = []
+        self.stems = stems
         """list of stems."""
 
         self.length = len(words)
         """length (number of tokens) of the sentence."""
+
+        self.lemmas = lemmas
+        """list of lemmatized words"""
 
         self.meta = meta
         """meta-information of the sentence."""
